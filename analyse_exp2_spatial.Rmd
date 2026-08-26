@@ -1,0 +1,334 @@
+---
+title: "Analyse de la mémoire spatiale"
+subtitle: "Expérience 2 — Healey, Gibson, Uitvlugt & Gondoli (2021)"
+author: "Analyse de portfolio"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+    latex_engine: xelatex
+geometry: margin=2.5cm
+fontsize: 11pt
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{float}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[L]{Analyse mémoire spatiale}
+  - \fancyhead[R]{Expérience 2}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width  = 7,
+  fig.height = 4.5
+)
+
+# Packages
+library(tidyverse)
+library(scales)
+library(knitr)
+library(kableExtra)
+```
+
+```{r data, include=FALSE}
+# -----------------------------------------------
+# DONNÉES
+# -----------------------------------------------
+# Assure-toi que exp_sp est bien chargé dans ton environnement R
+# Si ce n'est pas le cas, décommente la ligne suivante :
+# exp_sp <- read.csv("Exp2_spatial_recalls_matrix.csv")
+
+n_subjects  <- n_distinct(exp_sp$Subject)
+n_trials    <- n_distinct(exp_sp$Trial)
+total_lists <- n_subjects * n_trials
+
+# Format long
+df_long <- exp_sp %>%
+  pivot_longer(
+    cols         = starts_with("Output.Position"),
+    names_to     = "output_position",
+    names_prefix = "Output.Position.",
+    values_to    = "serial_position"
+  ) %>%
+  mutate(output_position = as.integer(output_position))
+
+df_correct <- df_long %>%
+  filter(serial_position >= 0) %>%
+  mutate(serial_position_1indexed = serial_position + 1)
+```
+
+\newpage
+
+# Introduction
+
+Cette analyse reproduit les principales mesures de l'**Expérience 2** de Healey, Gibson, Uitvlugt & Gondoli (2021), portant sur la tâche de **rappel libre immédiat spatial**.
+
+## Contexte de l'étude
+
+Dans cette expérience, **`r n_subjects` adolescents** ont réalisé `r n_trials` essais de rappel spatial. À chaque essai, ils mémorisaient une séquence de **10 emplacements spatiaux** présentés sur une grille, puis les rappelaient dans l'ordre de leur choix.
+
+**Condition expérimentale :** tous les participants avaient pour instruction de commencer le rappel par le **dernier élément présenté** (rappel instruit), avant de rappeler les éléments restants dans l'ordre souhaité.
+
+## Mesures analysées
+
+Trois mesures principales sont examinées :
+
+1. **Courbe de position sérielle** — taux de rappel selon la position dans la liste
+2. **Probabilité du premier rappel** — quel élément est rappelé en premier
+3. **Lag-CRP temporel** — tendance à rappeler des éléments proches dans le temps
+
+\newpage
+
+# Statistiques descriptives
+
+```{r stats-desc}
+# Taux de rappel global
+taux_global <- nrow(df_correct) / (total_lists * 10)
+
+# Nombre moyen de rappels corrects par essai
+moy_rappels <- df_correct %>%
+  group_by(Subject, Trial) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  summarise(
+    moyenne = mean(n),
+    ecart_type = sd(n),
+    minimum = min(n),
+    maximum = max(n)
+  )
+
+# Tableau récapitulatif
+desc_table <- tibble(
+  Mesure = c(
+    "Nombre de participants",
+    "Nombre d'essais par participant",
+    "Total d'essais",
+    "Taux de rappel global",
+    "Rappels corrects moyens par essai",
+    "Écart-type",
+    "Minimum",
+    "Maximum"
+  ),
+  Valeur = c(
+    n_subjects,
+    n_trials,
+    total_lists,
+    paste0(round(taux_global * 100, 1), " %"),
+    round(moy_rappels$moyenne, 2),
+    round(moy_rappels$ecart_type, 2),
+    moy_rappels$minimum,
+    moy_rappels$maximum
+  )
+)
+
+kable(desc_table,
+      booktabs = TRUE,
+      caption  = "Statistiques descriptives de la tâche de rappel spatial") %>%
+  kable_styling(latex_options = c("striped", "hold_position"),
+                full_width = FALSE)
+```
+
+\newpage
+
+# Courbe de position sérielle
+
+## Description
+
+La courbe de position sérielle illustre la proportion d'éléments correctement rappelés selon leur position dans la liste d'étude (de la 1ère à la 10ème position).
+
+```{r spc-compute}
+serial_position_curve <- df_correct %>%
+  group_by(serial_position_1indexed) %>%
+  summarise(
+    n_recalled  = n(),
+    recall_rate = n_recalled / total_lists,
+    .groups     = "drop"
+  )
+```
+
+```{r spc-plot, fig.cap="Courbe de position sérielle. Chaque point représente le taux de rappel moyen pour une position donnée dans la liste."}
+ggplot(serial_position_curve,
+       aes(x = serial_position_1indexed, y = recall_rate)) +
+  geom_line(color = "#2166AC", linewidth = 1.1) +
+  geom_point(color = "#2166AC", size = 3) +
+  scale_x_continuous(breaks = 1:10) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = percent_format(accuracy = 1)
+  ) +
+  labs(
+    x = "Position sérielle",
+    y = "Taux de rappel correct"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+## Interprétation
+
+```{r spc-interp}
+recency  <- serial_position_curve %>% filter(serial_position_1indexed == 10) %>% pull(recall_rate)
+primacy  <- serial_position_curve %>% filter(serial_position_1indexed == 1)  %>% pull(recall_rate)
+middle   <- serial_position_curve %>%
+  filter(serial_position_1indexed %in% 4:7) %>%
+  summarise(m = mean(recall_rate)) %>% pull(m)
+```
+
+Conformément aux résultats décrits dans l'article, on observe :
+
+- Un **fort effet de récence** : le dernier élément est rappelé dans **`r round(recency * 100, 1)` %** des essais, ce qui s'explique par les instructions demandant aux participants de commencer par la fin de la liste.
+- Un **effet de primauté modeste** : le premier élément est rappelé dans **`r round(primacy * 100, 1)` %** des essais.
+- Un **creux pour les positions médianes** (positions 4-7) avec un taux moyen de **`r round(middle * 100, 1)` %**.
+
+\newpage
+
+# Probabilité du premier rappel
+
+## Description
+
+Cette mesure indique quelle position sérielle est rappelée **en premier** par les participants. Dans la condition de rappel instruit, on s'attend à ce que la majorité des participants commence par le **dernier élément** de la liste (position 10).
+
+```{r pfr-compute}
+pfr <- df_correct %>%
+  filter(output_position == 1) %>%
+  group_by(serial_position_1indexed) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(probability = n / total_lists)
+```
+
+```{r pfr-plot, fig.cap="Probabilité du premier rappel. La hauteur de chaque barre indique la fréquence à laquelle cette position est rappelée en premier."}
+ggplot(pfr, aes(x = serial_position_1indexed, y = probability)) +
+  geom_bar(stat = "identity", fill = "#4DAF4A", alpha = 0.85) +
+  scale_x_continuous(breaks = 1:10) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    labels = percent_format(accuracy = 1)
+  ) +
+  labs(
+    x = "Position sérielle",
+    y = "Probabilité"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+## Interprétation
+
+```{r pfr-interp}
+top_pfr    <- pfr %>% arrange(desc(probability)) %>% slice(1)
+second_pfr <- pfr %>% arrange(desc(probability)) %>% slice(2)
+```
+
+La position **`r top_pfr$serial_position_1indexed`** (dernier élément de la liste) est rappelée en premier dans **`r round(top_pfr$probability * 100, 1)` %** des essais, confirmant que les participants ont bien suivi les instructions de rappel instruit. La deuxième position la plus fréquemment rappelée en premier est la position **`r second_pfr$serial_position_1indexed`** (`r round(second_pfr$probability * 100, 1)` % des essais).
+
+\newpage
+
+# Lag-CRP Temporel
+
+## Description
+
+Le lag-CRP (Conditional Response Probability) temporel mesure la probabilité de rappeler un élément en fonction de son **décalage temporel** par rapport à l'élément qui vient d'être rappelé. Un décalage positif indique un élément présenté *après* dans la liste, un décalage négatif un élément présenté *avant*.
+
+```{r lagcrp-compute}
+compute_lag_crp <- function(data) {
+  results <- list()
+  list_length <- 10
+
+  for (subj in unique(data$Subject)) {
+    for (tr in unique(data$Trial)) {
+
+      trial_data <- data %>%
+        filter(Subject == subj, Trial == tr, serial_position >= 0) %>%
+        arrange(output_position)
+
+      positions <- trial_data$serial_position
+      if (length(positions) < 2) next
+
+      for (i in 1:(length(positions) - 1)) {
+        current  <- positions[i]
+        next_pos <- positions[i + 1]
+        lag      <- next_pos - current
+
+        recalled_so_far <- positions[1:i]
+        possible        <- setdiff(0:(list_length - 1), recalled_so_far)
+        possible_lags   <- possible - current
+
+        results[[length(results) + 1]] <- list(
+          lag           = lag,
+          possible_lags = possible_lags
+        )
+      }
+    }
+  }
+  results
+}
+
+lag_results <- compute_lag_crp(df_long)
+
+lag_range       <- -5:5
+lag_counts      <- setNames(rep(0, length(lag_range)), lag_range)
+possible_counts <- setNames(rep(0, length(lag_range)), lag_range)
+
+for (res in lag_results) {
+  lag <- res$lag
+  if (lag %in% lag_range && lag != 0) {
+    lag_counts[as.character(lag)] <- lag_counts[as.character(lag)] + 1
+  }
+  for (pl in res$possible_lags) {
+    if (pl %in% lag_range && pl != 0) {
+      possible_counts[as.character(pl)] <- possible_counts[as.character(pl)] + 1
+    }
+  }
+}
+
+lag_crp_df <- tibble(
+  lag         = lag_range,
+  actual      = lag_counts[as.character(lag_range)],
+  possible    = possible_counts[as.character(lag_range)],
+  probability = ifelse(possible > 0, actual / possible, NA)
+) %>% filter(lag != 0)
+```
+
+```{r lagcrp-plot, fig.cap="Lag-CRP Temporel. La courbe montre la probabilité de transition entre deux éléments en fonction de leur décalage temporel. Les décalages négatifs correspondent à des transitions vers des éléments présentés plus tôt dans la liste."}
+ggplot(lag_crp_df, aes(x = lag, y = probability)) +
+  geom_line(color = "#D6604D", linewidth = 1.1) +
+  geom_point(color = "#D6604D", size = 3) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  scale_x_continuous(breaks = -5:5) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  labs(
+    x = "Décalage temporel (lag)",
+    y = "Probabilité de transition"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+## Interprétation
+
+```{r lagcrp-interp}
+lag_minus1 <- lag_crp_df %>% filter(lag == -1) %>% pull(probability)
+lag_plus1  <- lag_crp_df %>% filter(lag ==  1) %>% pull(probability)
+```
+
+On observe un **effet de contiguïté temporelle** : les transitions vers des éléments proches dans le temps (décalages ±1) sont plus fréquentes que vers des éléments éloignés. Conformément aux résultats de l'article pour la condition de rappel instruit, la courbe présente une **asymétrie arrière** : les transitions vers des éléments présentés *plus tôt* (lag -1 : `r round(lag_minus1 * 100, 1)` %) sont plus probables que vers des éléments présentés *plus tard* (lag +1 : `r round(lag_plus1 * 100, 1)` %). Cela s'explique par le fait que commencer par le dernier élément oblige mécaniquement à effectuer ensuite des transitions arrière.
+
+\newpage
+
+# Conclusion
+
+Cette analyse reproduit les résultats principaux de l'Expérience 2 de Healey et al. (2021) pour la tâche de rappel spatial en condition de rappel instruit :
+
+- La **courbe de position sérielle** montre un fort effet de récence et un effet de primauté modeste, conformément aux attentes pour un rappel libre immédiat.
+- La **probabilité du premier rappel** confirme que les participants ont suivi les instructions en commençant massivement par le dernier élément présenté.
+- Le **lag-CRP temporel** révèle un effet de contiguïté temporelle avec une asymétrie arrière, caractéristique de la condition de rappel instruit.
+
+Ces résultats s'inscrivent dans la démonstration centrale de l'article : des **instructions subtiles d'initiation du rappel** suffisent à modifier la façon dont les individus exploitent les informations temporelles lors de la recherche en mémoire.
+
+---
+
+*Analyse réalisée avec R `r R.version$major`.`r R.version$minor`. Données issues de Healey, Gibson, Uitvlugt & Gondoli (2021).*
